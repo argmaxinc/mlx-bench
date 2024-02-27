@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 logger = utils.get_logger(__name__)
 
 SETUP_CMD = "env CMAKE_BUILD_PARALLEL_LEVEL="" pip install -e ."
-MAX_CONTEXT = 16000
+MAX_CONTEXT = 16400
 MEASURE_EVERY_N_TOKENS = 100
 MIN_MISMATCH_AFTER_N_TOKENS = 100
 PROMPT = "Continue this series forever: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10"
@@ -168,8 +168,11 @@ if __name__ == "__main__":
             "mlx-community/Mistral-7B-Instruct-v0.2-8-bit",
         )
     )
+    parser.add_argument("--max-context-length", default=MAX_CONTEXT, type=int, help="Maximum context length (in tokens)")
 
     args = parser.parse_args()
+
+    MAX_CONTEXT = args.max_context_length
 
     class BenchContext(test_utils.AppleSiliconContextMixin, test_utils.InferenceContextSpec):
         def code_spec(self):

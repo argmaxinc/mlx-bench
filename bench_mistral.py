@@ -4,37 +4,118 @@ import subprocess
 from argmaxtools import utils, test_utils
 from huggingface_hub import snapshot_download
 import matplotlib.pyplot as plt
+import unittest
+from pprint import pprint
+from huggingface_hub import HfApi
+from _constants import TEST_RESULTS_REPO_NAME, TEST_RESULTS_REPO_OWNER
 
 logger = utils.get_logger(__name__)
 
 SETUP_CMD = "env CMAKE_BUILD_PARALLEL_LEVEL="" pip install -e ."
-MAX_CONTEXT = 16400
+MAX_CONTEXT = 2100
 MEASURE_EVERY_N_TOKENS = 100
-MIN_MISMATCH_AFTER_N_TOKENS = 100
+FAIL_FOR_MISMATCH_BEFORE_N_TOKENS = 1000
 PROMPT = "Continue this series forever: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10"
-BENCH_CMD = "python llms/mistral/mistral.py" + \
-    " --model-path ../external/model " + \
-    f" --max-tokens {MAX_CONTEXT} " + \
-    f" --tokens-per-eval {MEASURE_EVERY_N_TOKENS}" + \
-    f" --prompt '{PROMPT}'"
 
-# To compute speed-of-light inference speed
-MAC_MEMORY_BW = {
-    "M1": 68.3,
-    "M1 Pro": 200,
-    "M1 Max": 400,
-    "M1 Ultra": 800,
-    "M2": 100,
-    "M2 Pro": 200,
-    "M2 Max": 400,
-    "M2 Ultra": 800,
-    "M3": 100,
-    "M3 Pro": 150,
-    "M3 Max": {"40": 400, "30": 300},
-}
+
+class MLXMistral7bRegressionTest(unittest.TestCase):
+    """ Regression tests comparing two MLX forks/commits for Mistral-7b
+    """
+    @classmethod
+    def setUpClass(cls):
+        assert hasattr(cls, "args"), "args must be set before running the test"
+        logger.info(f"Test configuration: {cls.args}")
+
+        # Setup benchmark assets
+        setup_mlx_repos(args)
+        download_model(args)
+
+        cls.args.bench_cmd = "python llms/mistral/mistral.py" + \
+            " --model-path ../external/model " + \
+            f" --max-tokens {cls.args.max_context_length} " + \
+            f" --tokens-per-eval {cls.args.measure_every_n_tokens}" + \
+            f" --prompt '{PROMPT}'"
+
+        cls.inference_ctx = BenchContext().spec_dict()
+        logger.info("Running the benchmark with the following context:")
+        pprint(cls.inference_ctx)
+
+        # Run the benchmark
+        cls.bench_data = bench(args)
+
+    def test_correctness(self):
+        mismatch_after_n_tokens = check_correctness(self.bench_data)
+
+        # Get mlx-bench commit hash
+        mlx_bench_commit_hash = subprocess.run(
+            "git rev-parse HEAD",
+            stdout=subprocess.PIPE,
+            shell=True
+        ).stdout.decode('utf-8').strip()[:7]
+
+        results = {
+            "args": vars(self.args),
+            "repo_a": self.bench_data["repo_a"],
+            "repo_b": self.bench_data["repo_b"],
+            "mismatch_after_n_tokens": mismatch_after_n_tokens,
+            "inference_ctx": self.inference_ctx,
+            "mlx_bench_commit": mlx_bench_commit_hash,
+        }
+
+        # Save results
+        device_name = "_".join(self.inference_ctx['device_spec']['product_name'].split(" "))
+        fname = f"{self.args.repo_a.replace('/','-')}@{self.args.commit_a[:7]}_vs_" + \
+            f"{self.args.repo_b.replace('/','-')}@{self.args.commit_b[:7]}"
+        dir_name = os.path.join(os.getcwd(), self.args.output_dir, device_name)
+        os.makedirs(dir_name, exist_ok=True)
+
+        with open(os.path.join(dir_name, fname + ".json"), "w") as f:
+            json.dump(results, f)
+
+        fig = plot_performance(self.bench_data, self.inference_ctx, args)
+        fig.savefig(os.path.join(dir_name, fname + ".png"))
+
+        api = HfApi()
+        api.upload_folder(
+            folder_path=dir_name,
+            path_in_repo=os.path.join("bench_mistral", device_name),
+            repo_id=f"{TEST_RESULTS_REPO_OWNER}/{TEST_RESULTS_REPO_NAME}",
+            repo_type="dataset",
+            commit_message=f"mlx-bench {mlx_bench_commit_hash}: bench_mistral regression test",
+        )
+
+        if mismatch_after_n_tokens is not None:
+            self.assertGreaterEqual(
+                mismatch_after_n_tokens, FAIL_FOR_MISMATCH_BEFORE_N_TOKENS)
+
+
+class BenchContext(test_utils.AppleSiliconContextMixin,
+                   test_utils.InferenceContextSpec):
+    """ Hardware and software context for the benchmarks
+    """
+    def code_spec(self):
+        return {"repo_a": args.repo_a, "repo_b": args.repo_b,
+                "commit_a": args.commit_a, "commit_b": args.commit_b}
+
+    def model_spec(self):
+        return {"hub_model_name": args.hub_model_name}
 
 
 def get_speed_of_light_inference_speed(inference_ctx, model):
+    # To compute speed-of-light inference speed
+    MAC_MEMORY_BW = {
+        "M1": 68.3,
+        "M1 Pro": 200,
+        "M1 Max": 400,
+        "M1 Ultra": 800,
+        "M2": 100,
+        "M2 Pro": 200,
+        "M2 Max": 400,
+        "M2 Ultra": 800,
+        "M3": 100,
+        "M3 Pro": 150,
+        "M3 Max": {"40": 400, "30": 300},
+    }
     pass
 
 
@@ -81,7 +162,7 @@ def bench(args):
     # Benchmarking --bench-cmd under repo B
     logger.info("Benchmarking repo B")
     subprocess.check_call(
-        BENCH_CMD + " --benchmark-json-path benchmark_b.json --optimized-sdpa",
+        args.bench_cmd + " --benchmark-json-path benchmark_b.json --optimized-sdpa",
         shell=True, cwd=os.path.join(os.getcwd(), "mlx-examples"))
 
     # Load benchmark data from repo B
@@ -95,7 +176,7 @@ def bench(args):
     # Benchmarking --bench-cmd under repo A
     logger.info("Benchmarking repo A")
     subprocess.check_call(
-        BENCH_CMD + " --benchmark-json-path benchmark_a.json ",
+        args.bench_cmd + " --benchmark-json-path benchmark_a.json ",
         shell=True, cwd=os.path.join(os.getcwd(), "mlx-examples"))
 
     # Load benchmark data from repo A
@@ -113,10 +194,10 @@ def check_correctness(bench_data):
             logger.error(f"Mismatch in results: {result_a[-1]} vs {result_b[-1]}")
             mismatch_after_n_tokens = idx * MEASURE_EVERY_N_TOKENS
             logger.info(f"First mismatch after n tokens: {mismatch_after_n_tokens}")
-            if mismatch_after_n_tokens < MIN_MISMATCH_AFTER_N_TOKENS:
-                raise ValueError(
+            if mismatch_after_n_tokens < FAIL_FOR_MISMATCH_BEFORE_N_TOKENS:
+                logger.error(
                     f"First mismatch after {mismatch_after_n_tokens} tokens "
-                    f"(Less than {MIN_MISMATCH_AFTER_N_TOKENS})")
+                    f"(Less than {FAIL_FOR_MISMATCH_BEFORE_N_TOKENS})")
             break
         else:
             logger.info(f"Results match: {result_a[-1]} vs {result_b[-1]}")
@@ -147,7 +228,7 @@ def plot_performance(bench_data, inference_ctx, args):
 
     # TODO(atiorh): Plot speed-of-light inference speed based on memory bandwidth
 
-    f.savefig("bench.png")
+    return f
 
 
 if __name__ == "__main__":
@@ -168,29 +249,31 @@ if __name__ == "__main__":
             "mlx-community/Mistral-7B-Instruct-v0.2-8-bit",
         )
     )
-    parser.add_argument("--max-context-length", default=MAX_CONTEXT, type=int, help="Maximum context length (in tokens)")
+    parser.add_argument(
+        "--max-context-length",
+        default=MAX_CONTEXT, type=int,
+        help="Maximum context length (in tokens)"
+    )
+    parser.add_argument(
+        "--measure-every-n-tokens",
+        default=MEASURE_EVERY_N_TOKENS, type=int,
+        help="Measure inference speed every n tokens"
+    )
+    parser.add_argument(
+        "--fail-for-mismatch-before-n-tokens",
+        default=FAIL_FOR_MISMATCH_BEFORE_N_TOKENS, type=int,
+        help="Minimum number of tokens after which to consider a"
+        " mismatch acceptable (higher values make the test harder to pass)"
+    )
 
     args = parser.parse_args()
+    MLXMistral7bRegressionTest.args = args
 
-    MAX_CONTEXT = args.max_context_length
+    suite = unittest.TestSuite()
+    suite.addTest(MLXMistral7bRegressionTest("test_correctness"))
 
-    class BenchContext(test_utils.AppleSiliconContextMixin, test_utils.InferenceContextSpec):
-        def code_spec(self):
-            return {"repo_a": args.repo_a, "repo_b": args.repo_b,
-                    "commit_a": args.commit_a, "commit_b": args.commit_b}
-
-        def model_spec(self):
-            return {"hub_model_name": args.hub_model_name}
-
-    inference_ctx = BenchContext().spec_dict()
-
-    logger.info("Running the benchmark with the following context:")
-    from pprint import pprint
-    pprint(inference_ctx)
-
-    setup_mlx_repos(args)
-    download_model(args)
-
-    bench_data = bench(args)
-    mismatch_after_n_tokens = check_correctness(bench_data)
-    plot_performance(bench_data, inference_ctx, args)
+    if os.getenv("DEBUG", False):
+        suite.debug()
+    else:
+        runner = unittest.TextTestRunner()
+        runner.run(suite)

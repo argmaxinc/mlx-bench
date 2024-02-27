@@ -1,0 +1,35 @@
+name: Regression Tests (argmaxinc/mlx <-> mlexplore/mlx)
+run-name: commit-${{ github.sha }}
+on:
+  workflow_dispatch:
+jobs:
+  regression-test-mistral:
+    name: argmaxinc/mlx=${{ matrix.argmaxinc_mlx_hash }} vs mlxexplore/mlx=${{ matrix.mlxexplore_mlx_hash }}
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        argmaxinc_mlx_hash: [
+            "e44480a03d53d9f0895b9f8156ad8c045eb10d4e"
+        ]
+        mlxexplore_mlx_hash: [
+            "22364c40b7e488a81c322dfe5663a03daf3190a8"
+        ]
+        mistral_model: [
+            "mlx-community/Mistral-7B-Instruct-v0.2-4-bit",
+        ]
+    steps:
+    - uses: actions/checkout@v4
+    - name: argmaxinc/mlx=${{ matrix.argmaxinc_mlx_hash }} vs mlxexplore/mlx=${{ matrix.mlxexplore_mlx_hash }}
+      shell: bash -el {0}
+      run: |
+        conda create -n mlx-bench python=3.11 -y
+        conda activate mlx-bench
+        pip install -r requirements.txt
+        git submodule init && git submodule update
+        huggingface-cli login --token ${{ secrets.HF_AO_TOKEN}}
+        python bench_mistral.py \
+            --repo-a ml-explore/mlx --commit-a ${{ matrix.mlxexplore_mlx_hash }} \
+            --repo-b argmaxinc/mlx --commit-b ${{ matrix.argmaxinc_mlx_hash }} \
+            --hub-model-name ${{ matrix.mistral_model }} \
+            --output-dir external \
+            --max-context-length 2048

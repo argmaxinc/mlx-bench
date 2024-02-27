@@ -1,0 +1,5 @@
+argmaxtools
+huggingface_hub
+sentencepiece
+pybind11[global]
+matplotlib

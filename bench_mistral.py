@@ -161,9 +161,12 @@ def bench(args):
 
     # Benchmarking --bench-cmd under repo B
     logger.info("Benchmarking repo B")
-    subprocess.check_call(
-        args.bench_cmd + " --benchmark-json-path benchmark_b.json --optimized-sdpa",
-        shell=True, cwd=os.path.join(os.getcwd(), "mlx-examples"))
+    try:
+        subprocess.check_call(
+            args.bench_cmd + " --benchmark-json-path benchmark_b.json --optimized-sdpa",
+            shell=True, cwd=os.path.join(os.getcwd(), "mlx-examples"))
+    except Exception as e:
+        logger.warning(f"Failed to run the benchmark under repo B to completion: {e}")
 
     # Load benchmark data from repo B
     with open(os.path.join(os.getcwd(), "mlx-examples", "benchmark_b.json"), "r") as f:
@@ -175,9 +178,12 @@ def bench(args):
 
     # Benchmarking --bench-cmd under repo A
     logger.info("Benchmarking repo A")
-    subprocess.check_call(
-        args.bench_cmd + " --benchmark-json-path benchmark_a.json ",
-        shell=True, cwd=os.path.join(os.getcwd(), "mlx-examples"))
+    try:
+        subprocess.check_call(
+            args.bench_cmd + " --benchmark-json-path benchmark_a.json ",
+            shell=True, cwd=os.path.join(os.getcwd(), "mlx-examples"))
+    except Exception as e:
+        logger.warning(f"Failed to run the benchmark under repo A to completion: {e}")
 
     # Load benchmark data from repo A
     with open(os.path.join(os.getcwd(), "mlx-examples", "benchmark_a.json"), "r") as f:

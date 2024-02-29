@@ -38,5 +38,5 @@ jobs:
             --repo-b argmaxinc/mlx --commit-b ${{ matrix.argmaxinc_mlx_hash }} \
             --hub-model-name ${{ matrix.mistral_model }} \
             --output-dir external \
-            --max-context-length 2100 \
+            --max-context-length 8100 \
             --fail-for-mismatch-before-n-tokens 1000

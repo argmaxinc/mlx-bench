@@ -31,10 +31,11 @@ class MLXMistral7bRegressionTest(unittest.TestCase):
         download_model(args)
 
         cls.args.bench_cmd = "python llms/mistral/mistral.py" + \
-            " --model-path ../external/model " + \
-            f" --max-tokens {cls.args.max_context_length} " + \
+            " --model-path ../external/model" + \
+            f" --max-tokens {cls.args.max_context_length}" + \
             f" --tokens-per-eval {cls.args.measure_every_n_tokens}" + \
-            f" --prompt '{PROMPT}'"
+            f" --prompt '{PROMPT}'" + \
+            " --metal-disallow-cache"
 
         cls.inference_ctx = BenchContext().spec_dict()
         logger.info("Running the benchmark with the following context:")
@@ -101,22 +102,22 @@ class BenchContext(test_utils.AppleSiliconContextMixin,
         return {"hub_model_name": args.hub_model_name}
 
 
-def get_speed_of_light_inference_speed(inference_ctx, model):
-    # To compute speed-of-light inference speed
-    MAC_MEMORY_BW = {
-        "M1": 68.3,
-        "M1 Pro": 200,
-        "M1 Max": 400,
-        "M1 Ultra": 800,
-        "M2": 100,
-        "M2 Pro": 200,
-        "M2 Max": 400,
-        "M2 Ultra": 800,
-        "M3": 100,
-        "M3 Pro": 150,
-        "M3 Max": {"40": 400, "30": 300},
-    }
-    pass
+# def get_speed_of_light_inference_speed(inference_ctx, model):
+#     # To compute speed-of-light inference speed
+#     MAC_MEMORY_BW = {
+#         "M1": 68.3,
+#         "M1 Pro": 200,
+#         "M1 Max": 400,
+#         "M1 Ultra": 800,
+#         "M2": 100,
+#         "M2 Pro": 200,
+#         "M2 Max": 400,
+#         "M2 Ultra": 800,
+#         "M3": 100,
+#         "M3 Pro": 150,
+#         "M3 Max": {"40": 400, "30": 300},
+#     }
+#     pass
 
 
 def setup_mlx_repos(args):
@@ -157,7 +158,8 @@ def bench(args):
 
     # Install repo B
     logger.info("Installing repo B")
-    subprocess.check_call(SETUP_CMD, shell=True, cwd=os.path.join(args.output_dir, "repo_b", args.repo_a.split("/")[1]))
+    subprocess.check_call(
+        SETUP_CMD, shell=True, cwd=os.path.join(args.output_dir, "repo_b", args.repo_a.split("/")[1]))
 
     # Benchmarking --bench-cmd under repo B
     logger.info("Benchmarking repo B")
@@ -174,13 +176,14 @@ def bench(args):
 
     # Install repo A
     logger.info("Installing repo A")
-    subprocess.check_call(SETUP_CMD, shell=True, cwd=os.path.join(args.output_dir, "repo_a", args.repo_a.split("/")[1]))
+    subprocess.check_call(
+        SETUP_CMD, shell=True, cwd=os.path.join(args.output_dir, "repo_a", args.repo_a.split("/")[1]))
 
     # Benchmarking --bench-cmd under repo A
     logger.info("Benchmarking repo A")
     try:
         subprocess.check_call(
-            args.bench_cmd + " --benchmark-json-path benchmark_a.json ",
+            args.bench_cmd + " --benchmark-json-path benchmark_a.json",
             shell=True, cwd=os.path.join(os.getcwd(), "mlx-examples"))
     except Exception as e:
         logger.warning(f"Failed to run the benchmark under repo A to completion: {e}")
@@ -196,8 +199,8 @@ def check_correctness(bench_data):
     # Check correctness
     mismatch_after_n_tokens = None
     for idx, (result_a, result_b) in enumerate(zip(bench_data["repo_a"], bench_data["repo_b"])):
-        if not result_a[-1] == result_b[-1]:
-            logger.error(f"Mismatch in results: {result_a[-1]} vs {result_b[-1]}")
+        if not result_a["generated_text"] == result_b["generated_text"]:
+            logger.error(f"Mismatch in results: {result_a['generated_text']} vs {result_b['generated_text']}")
             mismatch_after_n_tokens = idx * MEASURE_EVERY_N_TOKENS
             logger.info(f"First mismatch after n tokens: {mismatch_after_n_tokens}")
             if mismatch_after_n_tokens < FAIL_FOR_MISMATCH_BEFORE_N_TOKENS:
@@ -206,15 +209,25 @@ def check_correctness(bench_data):
                     f"(Less than {FAIL_FOR_MISMATCH_BEFORE_N_TOKENS})")
             break
         else:
-            logger.info(f"Results match: {result_a[-1]} vs {result_b[-1]}")
+            logger.info(f"Results match: {result_a['generated_text']} vs {result_b['generated_text']}")
     return mismatch_after_n_tokens
 
 
 def plot_performance(bench_data, inference_ctx, args):
     # Plot performance
-    f, ax = plt.subplots(1, 2, figsize=(13, 6))
-    ax[0].plot([x[0] for x in bench_data["repo_a"]], [x[1] for x in bench_data["repo_a"]], label=f"{args.repo_a}@{args.commit_a[:7]}")
-    ax[0].plot([x[0] for x in bench_data["repo_b"]], [x[1] for x in bench_data["repo_b"]], label=f"{args.repo_b}@{args.commit_b[:7]}")
+    f, ax = plt.subplots(1, 5, figsize=(25, 5))
+
+    # Plot tokens/sec
+    ax[0].plot(
+        [x["kv_cache_length"] for x in bench_data["repo_a"]],
+        [x["tokens_per_sec"] for x in bench_data["repo_a"]],
+        label=f"{args.repo_a}@{args.commit_a[:7]}"
+    )
+    ax[0].plot(
+        [x["kv_cache_length"] for x in bench_data["repo_b"]],
+        [x["tokens_per_sec"] for x in bench_data["repo_b"]],
+        label=f"{args.repo_b}@{args.commit_b[:7]}"
+    )
     ax[0].set_xlabel("Context Length (tokens)")
     ax[0].set_ylabel("Inference Speed (tokens/second)")
     ax[0].set_title(
@@ -225,14 +238,66 @@ def plot_performance(bench_data, inference_ctx, args):
     )
     ax[0].legend()
 
+    # Plot Speedup
     ax[1].set_ylabel("Speedup")
     ax[1].set_xlabel("Context Length (tokens)")
     ax[1].plot(
-        [x[0] for x in bench_data["repo_a"]],
-        [y[1]/x[1] for x, y in zip(bench_data["repo_a"], bench_data["repo_b"])],
+        [x["kv_cache_length"] for x in bench_data["repo_a"]],
+        [
+            y["tokens_per_sec"]/x["tokens_per_sec"]
+            for x, y in zip(bench_data["repo_a"], bench_data["repo_b"])
+        ],
     )
 
-    # TODO(atiorh): Plot speed-of-light inference speed based on memory bandwidth
+    # Plot peak memory consumption
+    ax[2].set_title("Peak Memory")
+    ax[2].set_ylabel("Memory (MB)")
+    ax[2].set_xlabel("Context Length (tokens)")
+    ax[2].plot(
+        [x["kv_cache_length"] for x in bench_data["repo_a"]],
+        [x["peak_memory"] / 1e6 for x in bench_data["repo_a"]],
+        label=f"{args.repo_a}@{args.commit_a[:7]}"
+    )
+    ax[2].plot(
+        [x["kv_cache_length"] for x in bench_data["repo_b"]],
+        [x["peak_memory"] / 1e6 for x in bench_data["repo_b"]],
+        label=f"{args.repo_b}@{args.commit_b[:7]}"
+    )
+    ax[2].legend()
+
+    # Plot active memory consumption
+    ax[3].set_title("Active Memory")
+    ax[3].set_ylabel("Memory (MB)")
+    ax[3].set_xlabel("Context Length (tokens)")
+    ax[3].plot(
+        [x["kv_cache_length"] for x in bench_data["repo_a"]],
+        [x["active_memory"] / 1e6 for x in bench_data["repo_a"]],
+        label=f"{args.repo_a}@{args.commit_a[:7]}"
+    )
+    ax[3].plot(
+        [x["kv_cache_length"] for x in bench_data["repo_b"]],
+        [x["active_memory"] / 1e6 for x in bench_data["repo_b"]],
+        label=f"{args.repo_b}@{args.commit_b[:7]}"
+    )
+    ax[3].legend()
+
+    # Plot cache memory consumption
+    ax[4].set_title("Cache Memory")
+    ax[4].set_ylabel("Memory (MB)")
+    ax[4].set_xlabel("Context Length (tokens)")
+    ax[4].plot(
+        [x["kv_cache_length"] for x in bench_data["repo_a"]],
+        [x["cache_memory"] / 1e6 for x in bench_data["repo_a"]],
+        label=f"{args.repo_a}@{args.commit_a[:7]}"
+    )
+    ax[4].plot(
+        [x["kv_cache_length"] for x in bench_data["repo_b"]],
+        [x["cache_memory"] / 1e6 for x in bench_data["repo_b"]],
+        label=f"{args.repo_b}@{args.commit_b[:7]}"
+    )
+    ax[4].legend()
+
+    # TODO(atiorh): Plot speed-of-light inference based on memory bandwidth
 
     return f
 

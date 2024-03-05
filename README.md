@@ -14,11 +14,11 @@ Example command to test [ml-explore/mlx#735](https://github.com/ml-explore/mlx/p
 
 ```bash
 python bench_mistral.py \
-    --repo-a ml-explore/mlx --commit-a 22364c40b7e488a81c322dfe5663a03daf3190a8 \
-    --repo-b argmaxinc/mlx --commit-b 92711a8ce5941f2b9ef1b936ca6e4e98a4b3523c \
+    --repo-a ml-explore/mlx --commit-a c096a77b9b012a4cc91edcf50683c495a421dcb7 \
+    --repo-b argmaxinc/mlx --commit-b cd6e306b52f2c80eee9662bb225b853796aa48e5 \
     --output-dir external --hub-model-name mlx-community/Mistral-7B-Instruct-v0.2-4-bit \
-    --max-context-length 4000 \
-    --fail-for-mismatch-before-n-tokens 1000
+    --max-context-length 4100 \
+    --fail-for-mismatch-before-n-tokens 4100
 ```
 
 This benchmark tests the two repo+commit pairs for correctness and plot the performance. These are saved in the output directory.

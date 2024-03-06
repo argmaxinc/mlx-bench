@@ -14,7 +14,8 @@ jobs:
         ]
         commit_a: [
             # "7b463ffb077076e239b8931349d54fd5832b248c"
-            "14b4e51a7c6455a61a74d24da9f47dfeb161023f"
+            # "14b4e51a7c6455a61a74d24da9f47dfeb161023f"
+            "cbcf44a4caf3fb504ed29ef78091126134e197a3"
         ]
         commit_b: [
             # "0787724c44b870943386fe97ff709ab535f62c9c"
@@ -24,7 +25,7 @@ jobs:
             "mlx-community/Mistral-7B-Instruct-v0.2-4-bit",
         ]
         max-context-length: [
-          9100,
+          10100,
         ]
         python-version: [
           "3.11",

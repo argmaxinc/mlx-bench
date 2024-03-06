@@ -14,7 +14,7 @@ Example command to test [ml-explore/mlx#735](https://github.com/ml-explore/mlx/p
 
 ```bash
 python bench_mistral.py \
-    --repo-a ml-explore/mlx --commit-a 14b4e51a7c6455a61a74d24da9f47dfeb161023f \
+    --repo-a ml-explore/mlx --commit-a cbcf44a4caf3fb504ed29ef78091126134e197a3 \
     --repo-b ml-explore/mlx --commit-b 14b4e51a7c6455a61a74d24da9f47dfeb161023f \
     --output-dir external --hub-model-name mlx-community/Mistral-7B-Instruct-v0.2-4-bit \
     --max-context-length 800 \
